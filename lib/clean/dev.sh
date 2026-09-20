@@ -5337,19 +5337,10 @@ clean_developer_tools() {
     # for ~94s before its first output on the next run.
     _run_developer_cleanup_step \
         safe_clean ~/Library/Caches/Homebrew/downloads/* "Homebrew cache" || return $?
-    local brew_lock_dirs=(
-        "/opt/homebrew/var/homebrew/locks"
-        "/usr/local/var/homebrew/locks"
-    )
-    for lock_dir in "${brew_lock_dirs[@]}"; do
-        if [[ -d "$lock_dir" && -w "$lock_dir" ]]; then
-            _run_developer_cleanup_step \
-                safe_clean "$lock_dir"/* "Homebrew lock files" || return $?
-        elif [[ -d "$lock_dir" ]]; then
-            if find "$lock_dir" -mindepth 1 -maxdepth 1 -print -quit 2> /dev/null | grep -q .; then
-                debug_log "Skipping read-only Homebrew locks in $lock_dir"
-            fi
-        fi
-    done
+    # Homebrew's lock directory is deliberately not swept. Every file in it is
+    # zero bytes, so the whole directory reclaims nothing measurable, while
+    # deleting a lock a running `brew fetch` still holds makes that fetch fail
+    # with `No such file or directory @ dir_s_rmdir` (#1594). `brew cleanup`
+    # below already prunes what is genuinely stale, under Homebrew's own locking.
     _run_developer_cleanup_step clean_homebrew || return $?
 }
