@@ -626,7 +626,14 @@ _mole_paths_have_open_handle() {
 
     local lsof_rc=0
     local open_records=""
-    open_records=$(_mole_run_complete_lsof "$MOLE_TIMEOUT_QUICK_DETECT_SEC" \
+    # MO_DEBUG=0 on the capture, because this buffer is EVIDENCE, not output:
+    # an empty stderr is what makes rc=1 mean "conclusively idle" below. With
+    # the flag on, run_with_timeout writes its own "[TIMEOUT] Running with ..."
+    # line into the same stream, the buffer is never empty, and every probe
+    # downgrades to "could not tell". Measured on this Mac: 10 of 25 real cache
+    # databases flipped from cleanable to kept under `mo clean --debug`, so the
+    # flag meant to explain the run was quietly changing it.
+    open_records=$(MO_DEBUG=0 _mole_run_complete_lsof "$MOLE_TIMEOUT_QUICK_DETECT_SEC" \
         -F n -- "$@" 2>&1) || lsof_rc=$?
     if [[ $lsof_rc -eq 124 || $lsof_rc -ge 128 ]]; then
         return "$lsof_rc"
@@ -685,10 +692,10 @@ _mole_container_cache_has_open_handle() {
     local lsof_rc=0
     local records=""
     if [[ -d "$path" ]]; then
-        records=$(_mole_run_complete_lsof "$probe_timeout" \
+        records=$(MO_DEBUG=0 _mole_run_complete_lsof "$probe_timeout" \
             -F pfn +D "$path" 2>&1) || lsof_rc=$?
     else
-        records=$(_mole_run_complete_lsof "$probe_timeout" \
+        records=$(MO_DEBUG=0 _mole_run_complete_lsof "$probe_timeout" \
             -F pfn -- "$path" 2>&1) || lsof_rc=$?
     fi
 
