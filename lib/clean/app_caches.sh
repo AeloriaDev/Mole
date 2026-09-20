@@ -507,9 +507,14 @@ clean_feishu_service_worker_caches() {
 # (`Partitions/<name>/`), and the web app it loads there is a service worker
 # app: every workspace, page bundle, and asset version it precaches lands in
 # that partition's CacheStorage and is never evicted, so it grows without
-# bound (5+ GB reported in #1587). The partition sits under Application
-# Support, which no browser cleaner walks, and `~/Library/Caches/notion.id`
-# above reaches none of it.
+# bound. The partition sits under Application Support, which no browser
+# cleaner walks, and `~/Library/Caches/notion.id` above reaches none of it.
+#
+# Value is the reporter's, not measured here: 5+ GB on their machine (#1587),
+# with no Notion install on hand to confirm the reclaim or to check that login
+# and workspace load survive it. The partition layout itself was verified
+# against the Electron apps present locally, which all place
+# `Partitions/<name>/Service Worker/CacheStorage` exactly here.
 #
 # Same contract as Feishu/Lark: the shared Service Worker cleaner, CacheStorage
 # only and never the sibling ScriptCache (#785 #964 #968) or Database, both

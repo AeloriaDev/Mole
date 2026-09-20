@@ -1004,13 +1004,57 @@ source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/caches.sh"
 source "$PROJECT_ROOT/lib/clean/app_caches.sh"
 notion_running() { return 2; }
+mole_defer_cleanup_family() { echo "UNEXPECTED_DEFER:$1"; }
 safe_remove() { echo "UNEXPECTED_REMOVE:$1"; return 0; }
 note_activity() { :; }
 clean_notion_service_worker_caches
 EOF
 
     [ "$status" -eq 0 ] || return 1
-    [[ "$output" != *"UNEXPECTED_REMOVE"* ]]
+    [[ "$output" == *"Notion Service Worker · stopped (process state unknown)"* ]] || return 1
+    [[ "$output" != *"UNEXPECTED_REMOVE"* ]] || return 1
+    [[ "$output" != *"UNEXPECTED_DEFER"* ]]
+}
+
+@test "clean_notion_service_worker_caches refuses a symlinked partitions root" {
+    local iso="$HOME/iso-notion-root-symlink"
+    run env HOME="$iso" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+mkdir -p "$HOME/Library/Application Support/Notion" "$HOME/outside/notion/Service Worker/CacheStorage"
+touch "$HOME/outside/notion/Service Worker/CacheStorage/private"
+ln -s "$HOME/outside" "$HOME/Library/Application Support/Notion/Partitions"
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/caches.sh"
+source "$PROJECT_ROOT/lib/clean/app_caches.sh"
+notion_running() { return 1; }
+clean_service_worker_cache() { echo "SW|$2"; }
+clean_notion_service_worker_caches
+EOF
+
+    [ "$status" -eq 0 ] || return 1
+    [[ "$output" != *"outside"* ]] || return 1
+    [[ "$output" != *"SW|"* ]]
+}
+
+@test "clean_notion_service_worker_caches refuses a symlinked cache child" {
+    local iso="$HOME/iso-notion-child-symlink"
+    run env HOME="$iso" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+sw="$HOME/Library/Application Support/Notion/Partitions/notion/Service Worker"
+mkdir -p "$sw" "$HOME/outside"
+touch "$HOME/outside/private"
+ln -s "$HOME/outside" "$sw/CacheStorage"
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/caches.sh"
+source "$PROJECT_ROOT/lib/clean/app_caches.sh"
+notion_running() { return 1; }
+clean_service_worker_cache() { echo "SW|$2"; }
+clean_notion_service_worker_caches
+EOF
+
+    [ "$status" -eq 0 ] || return 1
+    [[ "$output" != *"outside"* ]] || return 1
+    [[ "$output" != *"SW|"* ]]
 }
 
 @test "clean_feishu_service_worker_caches preserves pipe characters in profile paths" {

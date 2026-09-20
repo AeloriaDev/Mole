@@ -108,14 +108,6 @@ curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash -s
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-`--config` moves the installed program itself, which by default sits in `~/.config/mole` alongside your settings:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash -s -- --config "$HOME/.local/share/mole"
-```
-
-Your own settings stay in `~/.config/mole` either way, so this separates the two.
-
 Add the same `PATH` export to `~/.zshrc` or your shell profile for new terminals. Mole updates the installation you invoked, so it keeps using this directory. Commands that change system-owned files may still request administrator access.
 
 </details>
