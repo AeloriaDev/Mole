@@ -359,6 +359,54 @@ clean_xcode_tools() {
         fi
     fi
 }
+# The directory names an editor's `.obsolete` journal marks stale, one per line.
+#
+# Reads the XML plutil emits rather than the `plutil -p` rendering an earlier
+# fix parsed. `man plutil` says of `-p`: "The output format is not stable and
+# not designed for machine parsing", and it is not. macOS 15 prints a JSON
+# boolean true as `1` while macOS 26 and 27 print `true`, so a filter pinned to
+# one spelling silently cleans nothing on the other (tw93/Mole#1512), and where
+# a boolean prints as `1` no filter can tell it from the integer 1 at all.
+#
+# That rendering is also depth-blind, which is the worse half: its keys carry
+# no nesting, so `{"outer":{"inner":true}}` handed back `inner` as a top-level
+# extension directory. That is a wrong deletion, not a missed one.
+#
+# In the XML, depth is explicit and each type is its own tag, so a key counts
+# only when it sits in the root dict and its value is exactly `<true/>`. Empty
+# containers are self-closing (`<dict/>`, `<array/>`) and must not move the
+# depth, so every tag is compared for equality rather than by prefix.
+_mole_obsolete_extension_keys() {
+    local obsolete_file="$1"
+    plutil -convert xml1 -o - "$obsolete_file" 2> /dev/null | awk '
+        # &amp; is decoded LAST: a key holding the literal text "&lt;" arrives
+        # as "&amp;lt;", and decoding &amp; first would turn it into a real "<".
+        function decode(s) {
+            gsub(/&lt;/, "<", s)
+            gsub(/&gt;/, ">", s)
+            gsub(/&amp;/, "\\&", s)
+            return s
+        }
+        {
+            line = $0
+            sub(/^[[:space:]]+/, "", line)
+            sub(/[[:space:]]+$/, "", line)
+            if (line == "<dict>" || line == "<array>") { depth++; pending = ""; next }
+            if (line == "</dict>" || line == "</array>") { depth--; pending = ""; next }
+            if (depth == 1 && line ~ /^<key>.*<\/key>$/) {
+                pending = substr(line, 6, length(line) - 11)
+                next
+            }
+            if (depth == 1 && pending != "") {
+                if (line == "<true/>") print decode(pending)
+                pending = ""
+                next
+            }
+            pending = ""
+        }
+    '
+}
+
 # Remove extension directories that VS Code / Cursor have marked obsolete.
 # Each editor writes a .obsolete JSON file under its extensions root whose keys
 # are stale extension directory names left behind after an extension update.
@@ -384,9 +432,7 @@ clean_editor_obsolete_extensions() {
             target="$ext_root/$key"
             [[ -d "$target" ]] || continue
             safe_clean "$target" "Obsolete $editor_label extension"
-        done < <(plutil -convert xml1 -o - "$obsolete_file" 2> /dev/null |
-            plutil -p - 2> /dev/null |
-            sed -nE 's/^[[:space:]]*"([^"]+)"[[:space:]]*=>[[:space:]]*true[[:space:]]*$/\1/p')
+        done < <(_mole_obsolete_extension_keys "$obsolete_file")
     done
 }
 # Code editors.

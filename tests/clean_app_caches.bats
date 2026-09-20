@@ -1460,6 +1460,111 @@ JSON
     [[ "$output" != *"CLEAN:$ext_root/pub.private-1.0.0"* ]] || return 1
 }
 
+@test "only a root-level .obsolete key marks an extension, never a nested one (#1512)" {
+    # The old parser read `plutil -p` text, which carries no nesting, so a key
+    # inside a nested dict or array came back looking like a top-level
+    # extension directory name. A user whose extensions root happened to hold a
+    # directory of that name had it offered for deletion: a wrong deletion, not
+    # a missed one. RED on V1.55.0, which offers both nested names.
+    rm -rf "$HOME/.vscode" "$HOME/.vscode-insiders" "$HOME/.cursor" "$HOME/Library/Application Support/Code"
+    local ext_root="$HOME/.vscode/extensions"
+    make_extension_dir "$ext_root" "nested-in-dict" "Pub" "nd" "1.0.0"
+    make_extension_dir "$ext_root" "nested-in-array" "Pub" "na" "1.0.0"
+    make_extension_dir "$ext_root" "at-root" "Pub" "rk" "1.0.0"
+    cat > "$ext_root/.obsolete" << 'JSON'
+{
+  "outer": { "nested-in-dict": true },
+  "arr": [ { "nested-in-array": true } ],
+  "at-root": true
+}
+JSON
+    mkdir -p "$HOME/Library/Application Support/Code/User/profiles"
+
+    run_editor_extension_cleanup
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"CLEAN:$ext_root/at-root"* ]] || return 1
+    [[ "$output" != *"CLEAN:$ext_root/nested-in-dict"* ]] || return 1
+    [[ "$output" != *"CLEAN:$ext_root/nested-in-array"* ]] || return 1
+}
+
+@test "an empty .obsolete container does not hide the keys after it (#1512)" {
+    # plutil spells an empty container as a self-closing <dict/> / <array/>.
+    # Counting those as an opening tag desyncs the depth upward and silently
+    # drops every later root key, so the whole cleanup goes quiet. Key order in
+    # the fixture is deliberate: plutil sorts keys, so the real one must sort
+    # last to actually sit behind both empty containers.
+    rm -rf "$HOME/.vscode" "$HOME/.vscode-insiders" "$HOME/.cursor" "$HOME/Library/Application Support/Code"
+    local ext_root="$HOME/.vscode/extensions"
+    make_extension_dir "$ext_root" "zz-after-empty" "Pub" "ae" "1.0.0"
+    cat > "$ext_root/.obsolete" << 'JSON'
+{
+  "aa-emptydict": {},
+  "ab-emptyarray": [],
+  "zz-after-empty": true
+}
+JSON
+    mkdir -p "$HOME/Library/Application Support/Code/User/profiles"
+
+    run_editor_extension_cleanup
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"CLEAN:$ext_root/zz-after-empty"* ]] || return 1
+}
+
+@test ".obsolete keys carrying XML entities resolve to their real names (#1512)" {
+    # plutil escapes &, < and > inside a <key>. Decoding &amp; before the other
+    # two turns a key holding the literal text "&lt;" into a real "<", so the
+    # name no longer matches the directory on disk and the entry is skipped.
+    rm -rf "$HOME/.vscode" "$HOME/.vscode-insiders" "$HOME/.cursor" "$HOME/Library/Application Support/Code"
+    local ext_root="$HOME/.vscode/extensions"
+    make_extension_dir "$ext_root" 'amp&key' "Pub" "am" "1.0.0"
+    make_extension_dir "$ext_root" 'lit&lt;key' "Pub" "li" "1.0.0"
+    cat > "$ext_root/.obsolete" << 'JSON'
+{
+  "amp&key": true,
+  "lit&lt;key": true
+}
+JSON
+    mkdir -p "$HOME/Library/Application Support/Code/User/profiles"
+
+    run_editor_extension_cleanup
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"CLEAN:$ext_root/amp&key"* ]] || return 1
+    [[ "$output" == *"CLEAN:$ext_root/lit&lt;key"* ]] || return 1
+}
+
+@test "a .obsolete value must be boolean true, not 1 or the string true (#1512)" {
+    # The journal marks an entry stale with a boolean. Widening the match to
+    # accept anything that merely prints as 1 (which is how macOS 15 renders a
+    # boolean) would also accept a real integer, so the type has to come from
+    # the XML tag rather than from rendered text.
+    rm -rf "$HOME/.vscode" "$HOME/.vscode-insiders" "$HOME/.cursor" "$HOME/Library/Application Support/Code"
+    local ext_root="$HOME/.vscode/extensions"
+    make_extension_dir "$ext_root" "val-int-one" "Pub" "vi" "1.0.0"
+    make_extension_dir "$ext_root" "val-string-true" "Pub" "vs" "1.0.0"
+    make_extension_dir "$ext_root" "val-false" "Pub" "vf" "1.0.0"
+    make_extension_dir "$ext_root" "val-true" "Pub" "vt" "1.0.0"
+    cat > "$ext_root/.obsolete" << 'JSON'
+{
+  "val-int-one": 1,
+  "val-string-true": "true",
+  "val-false": false,
+  "val-true": true
+}
+JSON
+    mkdir -p "$HOME/Library/Application Support/Code/User/profiles"
+
+    run_editor_extension_cleanup
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"CLEAN:$ext_root/val-true"* ]] || return 1
+    [[ "$output" != *"CLEAN:$ext_root/val-int-one"* ]] || return 1
+    [[ "$output" != *"CLEAN:$ext_root/val-string-true"* ]] || return 1
+    [[ "$output" != *"CLEAN:$ext_root/val-false"* ]] || return 1
+}
+
 @test "clean_code_editors includes CodeBuddy Extension caches when directory exists" {
     mkdir -p "$HOME/Library/Application Support/CodeBuddyExtension"
 
