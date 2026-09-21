@@ -1,6 +1,6 @@
 ---
-name: Bug Report
-about: Report a bug or issue with Mole
+name: CLI Bug Report
+about: Report a bug in the Mole command-line tool
 title: '[BUG] '
 labels: bug
 assignees: ''

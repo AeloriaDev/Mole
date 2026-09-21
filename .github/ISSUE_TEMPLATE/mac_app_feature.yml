@@ -52,8 +52,8 @@ body:
     id: examples
     attributes:
       label: Examples, screenshots, or references
-      description: Add screenshots, links, or examples if they help explain the request.
-      placeholder: "Optional context."
+      description: Give one concrete example, such as an app, a folder (with your username removed), or the steps you take today. Screenshots and links can help.
+      placeholder: "Which app, folder, or workflow would this improve?"
     validations:
       required: false
   - type: checkboxes

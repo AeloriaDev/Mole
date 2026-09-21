@@ -1,6 +1,6 @@
 ---
-name: Feature Request
-about: Suggest an idea for Mole
+name: CLI Feature Request
+about: Suggest an improvement for the Mole command-line tool
 title: '[FEATURE] '
 labels: enhancement
 assignees: ''

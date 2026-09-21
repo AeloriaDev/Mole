@@ -15,8 +15,8 @@ body:
     id: app_version
     attributes:
       label: Mole Mac app version
-      description: Open Mole, choose About Mole, and paste the version shown there.
-      placeholder: "1.0.0"
+      description: Keep the prefilled version and build. If blank, copy the version from About Mole.
+      placeholder: "Version (build), or version from About Mole"
     validations:
       required: true
   - type: input
@@ -53,7 +53,7 @@ body:
     id: description
     attributes:
       label: What happened?
-      description: Describe the bug clearly. Screenshots are welcome if they do not reveal private data.
+      description: Describe what went wrong. For app detection, updates, or uninstall issues, include the affected app’s name, version, and install source (website, App Store, or Homebrew). For cleanup issues, include the relevant folder with your username removed.
       placeholder: "Mole did..."
     validations:
       required: true
@@ -73,13 +73,6 @@ body:
     attributes:
       label: Expected behavior
       placeholder: "I expected Mole to..."
-    validations:
-      required: true
-  - type: textarea
-    id: actual
-    attributes:
-      label: Actual behavior
-      placeholder: "Instead, Mole..."
     validations:
       required: true
   - type: textarea
