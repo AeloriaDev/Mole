@@ -497,7 +497,16 @@ _mole_sqlite_database_in_use() {
     # empty array is an unbound-variable error under set -u.
     [[ ${#family[@]} -gt 0 ]] || return 1
 
-    _mole_paths_have_open_handle "${family[@]}"
+    local handle_rc=0
+    _mole_paths_have_open_handle "${family[@]}" || handle_rc=$?
+    if [[ $handle_rc -eq 124 ]]; then
+        # A read-only handle probe that timed out proves neither idle nor live.
+        # Keep this family without cancelling unrelated cleanup (#1595).
+        # Signals and deletion timeouts retain their cancellation semantics.
+        debug_log "SQLite handle probe timed out, keeping database: $path"
+        return 2
+    fi
+    return "$handle_rc"
 }
 
 _mole_user_cache_sqlite_has_open_handle() {

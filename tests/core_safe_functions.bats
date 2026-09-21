@@ -338,7 +338,7 @@ printf 'RC=%s\n' "$validation_rc"
 EOF
 
     [ "$status" -eq 0 ] || return 1
-    [[ "$output" == *"RC=124"* ]]
+    [[ "$output" == "RC=1" ]]
 }
 
 @test "validate_path_for_deletion checks every supported SQLite name inside a cache directory (#1439)" {
@@ -3227,4 +3227,70 @@ EOF
         return 1
     }
     [[ "$output" == *"UNREADABLE=2"* ]]
+}
+
+@test "SQLite handle timeout keeps the file without cancelling later cleanup (#1595)" {
+    local database="$TEST_DIR/timeout.sqlite"
+    printf 'database' > "$database"
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" database="$database" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+MOLE_CURRENT_COMMAND=clean
+MOLE_CLEAN_CANCEL_STATUS=0
+_MOLE_COMPLETE_LSOF_MODE=direct
+_mole_run_complete_lsof() { return 124; }
+rc=0
+safe_remove "$database" true || rc=$?
+printf 'RC=%s CANCEL=%s EXISTS=%s\n' "$rc" "$MOLE_CLEAN_CANCEL_STATUS" "$(test -f "$database" && echo yes || echo no)"
+next="${database%.sqlite}.log"
+printf 'stale' > "$next"
+safe_remove "$next" true 0 || exit 1
+[[ ! -e "$next" ]] || exit 1
+printf 'LATER_REMOVED\n'
+EOF
+    [ "$status" -eq 0 ] || return 1
+    [[ "$output" == *"RC=1 CANCEL=0 EXISTS=yes"* ]] || return 1
+    [[ "$output" == *"LATER_REMOVED"* ]]
+}
+
+@test "SQLite handle interruption still cancels cleanup (#1595)" {
+    local database="$TEST_DIR/interrupted.sqlite"
+    printf 'database' > "$database"
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" database="$database" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+MOLE_CURRENT_COMMAND=clean
+MOLE_CLEAN_CANCEL_STATUS=0
+_MOLE_COMPLETE_LSOF_MODE=direct
+_mole_run_complete_lsof() { return 130; }
+rc=0
+safe_remove "$database" true || rc=$?
+printf 'RC=%s CANCEL=%s EXISTS=%s\n' "$rc" "$MOLE_CLEAN_CANCEL_STATUS" "$(test -f "$database" && echo yes || echo no)"
+EOF
+    [ "$status" -eq 0 ] || return 1
+    [[ "$output" == *"RC=130 CANCEL=130 EXISTS=yes"* ]]
+}
+
+@test "SQLite timeout after sizing keeps the file without cancellation (#1595)" {
+    local database="$TEST_DIR/final-timeout.sqlite"
+    printf 'database' > "$database"
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" database="$database" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+MOLE_CURRENT_COMMAND=clean
+MOLE_CLEAN_CANCEL_STATUS=0
+_MOLE_COMPLETE_LSOF_MODE=direct
+_mole_run_complete_lsof() {
+    [[ -e "${database}.sized" ]] && return 124
+    return 1
+}
+oplog_enabled() { return 0; }
+get_path_size_kb() { touch "${database}.sized"; printf '1\n'; }
+rc=0
+safe_remove "$database" true || rc=$?
+printf 'RC=%s CANCEL=%s EXISTS=%s SIZED=%s\n' "$rc" "$MOLE_CLEAN_CANCEL_STATUS" \
+    "$(test -f "$database" && echo yes || echo no)" "$(test -f "${database}.sized" && echo yes || echo no)"
+EOF
+    [ "$status" -eq 0 ] || return 1
+    [[ "$output" == *"RC=1 CANCEL=0 EXISTS=yes SIZED=yes"* ]]
 }
