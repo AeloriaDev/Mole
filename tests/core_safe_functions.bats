@@ -3183,6 +3183,10 @@ probe table-later com.brave.Browser.nightly
 probe table-nested org.pqrs.Karabiner-Elements.Settings
 probe table-helper com.autodesk.AcCoreConsole
 probe table-broken com.brave.Browser.nightly
+printf '  PID PPID COMM ARGS\n  708 1 /opt/BraveNightly /opt/BraveNightly --label Brave --channel Nightly --open %s/Contents/MacOS/Other\n' "$HOME/Applications/Brave Browser Nightly.app" > "$HOME/table-outside"
+probe table-outside com.brave.Browser.origin.nightly
+printf '  PID PPID COMM ARGS\n  709 1 /Applications/Br /Applications/BraveLauncher --label Brave --channel Nightly --open %s/Contents/MacOS/Other\n' "$HOME/Applications/Brave Browser Nightly.app" > "$HOME/table-launcher"
+probe table-launcher com.brave.Browser.origin.nightly
 EOF
 
     [ "$status" -eq 0 ] || {
@@ -3195,6 +3199,8 @@ EOF
     [[ "$output" == *"table-later com.brave.Browser.nightly=0"* ]] || return 1
     [[ "$output" == *"table-nested org.pqrs.Karabiner-Elements.Settings=0"* ]] || return 1
     [[ "$output" == *"table-helper com.autodesk.AcCoreConsole=0"* ]] || return 1
+    [[ "$output" == *"table-outside com.brave.Browser.origin.nightly=0"* ]] || return 1
+    [[ "$output" == *"table-launcher com.brave.Browser.origin.nightly=0"* ]] || return 1
     [[ "$output" == *"table-broken com.brave.Browser.nightly=0"* ]]
 }
 

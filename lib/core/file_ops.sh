@@ -515,10 +515,9 @@ _mole_app_bundle_identifier() {
 }
 
 # A corroborated shape-2 process line whose executable lives in an app bundle
-# below /Applications or ~/Applications, at any depth, is attributed by that
-# bundle's identifier. The table line is the 16-byte kernel comm followed by
-# argv, so the bundle is taken from the first field, in line order, that names
-# an existing bundle directory: normally argv[0], never a later argument.
+# below /Applications or ~/Applications is attributed by that bundle's id.
+# Inspect only the leading executable path, removing a truncated comm only
+# when argv repeats its prefix. Never search later arguments for an app.
 # 0 = the line belongs to a different app, so it says nothing about the owner.
 # 1 = the line may be the owner's and its tokens count:
 #   - the bundle's identifier is the owner's, or the two extend each other at a
@@ -529,27 +528,31 @@ _mole_app_bundle_identifier() {
 #   - the identifier cannot be read, or no such bundle path is on the line.
 _mole_process_line_belongs_to_other_app() {
     local line="$1" owner="$2" leaf="$3"
-    local rest=" $line" field root head tail bundle=""
-    # Fields are not delimited (paths contain spaces), so within a field the
-    # bundle is the shortest ".app/" prefix that is a directory: a prefix that
-    # runs into the next field, such as the truncated comm followed by
-    # argv[0], never exists on disk.
-    while [[ -z "$bundle" && "$rest" == *" /"* ]]; do
-        rest="${rest#*" /"}"
-        field="/$rest"
-        for root in /Applications "$HOME/Applications"; do
-            [[ "$field" == "$root/"* ]] || continue
-            head=""
-            tail="$field"
-            while [[ "$tail" == *.app/* ]]; do
-                head="${head}${tail%%.app/*}.app"
-                tail="${tail#*.app/}"
-                if [[ -d "$head" ]]; then
-                    bundle="$head"
-                    break 2
-                fi
-                head="${head}/"
-            done
+    local field root head tail bundle=""
+    # ps can prefix argv with a truncated 16-byte comm. Remove it only when
+    # argv repeats that exact path prefix; otherwise keep uncertain lines busy.
+    line="${line#"${line%%[![:space:]]*}"}"
+    local comm_prefix="${line:0:16}"
+    local arguments="${line:16}"
+    arguments="${arguments#"${arguments%%[![:space:]]*}"}"
+    if [[ "$comm_prefix" == /* && "$arguments" == "$comm_prefix"* ]]; then
+        line="$arguments"
+    fi
+    field="$line"
+    for root in /Applications "$HOME/Applications"; do
+        [[ "$field" == "$root/"* ]] || continue
+        head=""
+        tail="$field"
+        while [[ "$tail" == *.app/* ]]; do
+            head="${head}${tail%%.app/*}.app"
+            tail="${tail#*.app/}"
+            # Crossing into another absolute argument cannot identify argv[0].
+            [[ "$head" != *" /"* ]] || return 1
+            if [[ -d "$head" ]]; then
+                bundle="$head"
+                break 2
+            fi
+            head="${head}/"
         done
     done
     [[ -n "$bundle" ]] || return 1
