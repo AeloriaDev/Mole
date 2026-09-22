@@ -515,9 +515,10 @@ _mole_app_bundle_identifier() {
 }
 
 # A corroborated shape-2 process line whose executable lives in an app bundle
-# under /Applications or ~/Applications is attributed by that bundle's
-# identifier. The table line is the 16-byte kernel comm followed by argv, so
-# the bundle is the first ".app/" path at a field boundary, normally argv[0].
+# below /Applications or ~/Applications, at any depth, is attributed by that
+# bundle's identifier. The table line is the 16-byte kernel comm followed by
+# argv, so the bundle is taken from the first field, in line order, that names
+# an existing bundle directory: normally argv[0], never a later argument.
 # 0 = the line belongs to a different app, so it says nothing about the owner.
 # 1 = the line may be the owner's and its tokens count:
 #   - the bundle's identifier is the owner's, or the two extend each other at a
@@ -528,18 +529,27 @@ _mole_app_bundle_identifier() {
 #   - the identifier cannot be read, or no such bundle path is on the line.
 _mole_process_line_belongs_to_other_app() {
     local line="$1" owner="$2" leaf="$3"
-    local padded=" $line" root rest name bundle=""
-    # The truncated comm can itself begin with "/Applications/", so walk every
-    # field that starts under a root until one names a bundle directory.
-    for root in /Applications "$HOME/Applications"; do
-        rest="$padded"
-        while [[ "$rest" == *" $root/"* ]]; do
-            rest="${rest#*" $root/"}"
-            name="${rest%%/*}"
-            if [[ "$name" == *.app && "$rest" == "$name/"* ]]; then
-                bundle="$root/$name"
-                break 2
-            fi
+    local rest=" $line" field root head tail bundle=""
+    # Fields are not delimited (paths contain spaces), so within a field the
+    # bundle is the shortest ".app/" prefix that is a directory: a prefix that
+    # runs into the next field, such as the truncated comm followed by
+    # argv[0], never exists on disk.
+    while [[ -z "$bundle" && "$rest" == *" /"* ]]; do
+        rest="${rest#*" /"}"
+        field="/$rest"
+        for root in /Applications "$HOME/Applications"; do
+            [[ "$field" == "$root/"* ]] || continue
+            head=""
+            tail="$field"
+            while [[ "$tail" == *.app/* ]]; do
+                head="${head}${tail%%.app/*}.app"
+                tail="${tail#*.app/}"
+                if [[ -d "$head" ]]; then
+                    bundle="$head"
+                    break 2
+                fi
+                head="${head}/"
+            done
         done
     done
     [[ -n "$bundle" ]] || return 1

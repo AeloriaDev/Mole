@@ -3119,10 +3119,13 @@ EOF
 
 # Shape 2 reads every "Brave Origin Nightly" line as com.brave.Browser.nightly:
 # same vendor, same last label, different app, so one channel kept the other's
-# cache busy for as long as it ran. A line that starts inside an app bundle is
-# attributed by that bundle's identifier instead. The owner's own bundle, a
-# nested app that extends the owner's id, an executable named after the label
-# (the AcCoreConsole shape) and an unreadable bundle all still count.
+# cache busy for as long as it ran. A line whose executable lives in an app
+# bundle, at any depth below an application root, is attributed by that
+# bundle's identifier instead, taken from the first field in line order. The
+# owner's own bundle (even when a later argument names another app), a nested
+# app that extends the owner's id, an executable named after the label (the
+# AcCoreConsole shape) and an unreadable bundle all still count. The comm
+# column is the 16-byte kernel name, as ps prints it.
 @test "cache owner probe attributes an app bundle's lines by its identifier" {
     local apps="$HOME/Applications"
     local name id
@@ -3132,24 +3135,35 @@ EOF
             "$apps/$name/Contents/Info.plist" > /dev/null
     done <<'APPS'
 Brave Browser Nightly.app|com.brave.Browser.nightly
-Brave Origin Nightly.app|com.brave.Browser.origin.nightly
+Browsers/Brave Origin Nightly.app|com.brave.Browser.origin.nightly
 Karabiner-Elements.app|org.pqrs.Karabiner-Elements
 Autodesk Fusion.app|com.autodesk.fusion360
 Broken.app|
 APPS
-    local origin="$apps/Brave Origin Nightly.app/Contents/MacOS/Brave Origin Nightly"
-    local origin_helper="$apps/Brave Origin Nightly.app/Contents/Frameworks/Brave Origin Nightly Framework.framework/Versions/154.1.98.11/Helpers/Brave Origin Nightly Helper (Renderer).app/Contents/MacOS/Brave Origin Nightly Helper (Renderer)"
+    # Any readable bundle under /Applications stands in for an unrelated app
+    # that a later argument can name.
+    local installed="" candidate
+    for candidate in /Applications/*.app; do
+        plutil -extract CFBundleIdentifier raw -o - "$candidate/Contents/Info.plist" > /dev/null 2>&1 || continue
+        installed="$candidate"
+        break
+    done
+    [[ -n "$installed" ]] || skip "no readable app bundle under /Applications"
+    local origin="$apps/Browsers/Brave Origin Nightly.app/Contents/MacOS/Brave Origin Nightly"
+    local origin_helper="$apps/Browsers/Brave Origin Nightly.app/Contents/Frameworks/Brave Origin Nightly Framework.framework/Versions/154.1.98.11/Helpers/Brave Origin Nightly Helper (Renderer).app/Contents/MacOS/Brave Origin Nightly Helper (Renderer)"
     local nightly="$apps/Brave Browser Nightly.app/Contents/MacOS/Brave Browser Nightly"
     local settings="$apps/Karabiner-Elements.app/Contents/Resources/Karabiner-Elements Settings.app/Contents/MacOS/Karabiner-Elements Settings"
     local console="$apps/Autodesk Fusion.app/Contents/MacOS/AcCoreConsole"
     local broken="$apps/Broken.app/Contents/MacOS/Brave Nightly Beta"
     printf '  PID  PPID COMM ARGS\n  701     1 %s %s\n  702     1 %s %s --type=renderer\n' \
-        "$origin" "$origin" "$origin_helper" "$origin_helper" > "$HOME/table-sibling"
+        "${origin:0:16}" "$origin" "${origin_helper:0:16}" "$origin_helper" > "$HOME/table-sibling"
     printf '  PID  PPID COMM ARGS\n  701     1 %s %s\n  703     1 %s %s\n' \
-        "$origin" "$origin" "$nightly" "$nightly" > "$HOME/table-owner"
-    printf '  PID  PPID COMM ARGS\n  704     1 %s %s\n' "$settings" "$settings" > "$HOME/table-nested"
-    printf '  PID  PPID COMM ARGS\n  705     1 %s %s\n' "$console" "$console" > "$HOME/table-helper"
-    printf '  PID  PPID COMM ARGS\n  706     1 %s %s\n' "$broken" "$broken" > "$HOME/table-broken"
+        "${origin:0:16}" "$origin" "${nightly:0:16}" "$nightly" > "$HOME/table-owner"
+    printf '  PID  PPID COMM ARGS\n  704     1 %s %s %s/Contents/MacOS/Unrelated\n' \
+        "${nightly:0:16}" "$nightly" "$installed" > "$HOME/table-later"
+    printf '  PID  PPID COMM ARGS\n  705     1 %s %s\n' "${settings:0:16}" "$settings" > "$HOME/table-nested"
+    printf '  PID  PPID COMM ARGS\n  706     1 %s %s\n' "${console:0:16}" "$console" > "$HOME/table-helper"
+    printf '  PID  PPID COMM ARGS\n  707     1 %s %s\n' "${broken:0:16}" "$broken" > "$HOME/table-broken"
 
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
@@ -3165,6 +3179,7 @@ probe() {
 probe table-sibling com.brave.Browser.nightly
 probe table-sibling com.brave.Browser.origin.nightly
 probe table-owner com.brave.Browser.nightly
+probe table-later com.brave.Browser.nightly
 probe table-nested org.pqrs.Karabiner-Elements.Settings
 probe table-helper com.autodesk.AcCoreConsole
 probe table-broken com.brave.Browser.nightly
@@ -3177,6 +3192,7 @@ EOF
     [[ "$output" == *"table-sibling com.brave.Browser.nightly=1"* ]] || return 1
     [[ "$output" == *"table-sibling com.brave.Browser.origin.nightly=0"* ]] || return 1
     [[ "$output" == *"table-owner com.brave.Browser.nightly=0"* ]] || return 1
+    [[ "$output" == *"table-later com.brave.Browser.nightly=0"* ]] || return 1
     [[ "$output" == *"table-nested org.pqrs.Karabiner-Elements.Settings=0"* ]] || return 1
     [[ "$output" == *"table-helper com.autodesk.AcCoreConsole=0"* ]] || return 1
     [[ "$output" == *"table-broken com.brave.Browser.nightly=0"* ]]
