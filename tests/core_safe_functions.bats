@@ -3117,6 +3117,71 @@ EOF
 	[[ "$output" == *"HELPER=0"* ]]
 }
 
+# Shape 2 reads every "Brave Origin Nightly" line as com.brave.Browser.nightly:
+# same vendor, same last label, different app, so one channel kept the other's
+# cache busy for as long as it ran. A line that starts inside an app bundle is
+# attributed by that bundle's identifier instead. The owner's own bundle, a
+# nested app that extends the owner's id, an executable named after the label
+# (the AcCoreConsole shape) and an unreadable bundle all still count.
+@test "cache owner probe attributes an app bundle's lines by its identifier" {
+    local apps="$HOME/Applications"
+    local name id
+    while IFS='|' read -r name id; do
+        mkdir -p "$apps/$name/Contents/MacOS"
+        [[ -z "$id" ]] || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $id" \
+            "$apps/$name/Contents/Info.plist" > /dev/null
+    done <<'APPS'
+Brave Browser Nightly.app|com.brave.Browser.nightly
+Brave Origin Nightly.app|com.brave.Browser.origin.nightly
+Karabiner-Elements.app|org.pqrs.Karabiner-Elements
+Autodesk Fusion.app|com.autodesk.fusion360
+Broken.app|
+APPS
+    local origin="$apps/Brave Origin Nightly.app/Contents/MacOS/Brave Origin Nightly"
+    local origin_helper="$apps/Brave Origin Nightly.app/Contents/Frameworks/Brave Origin Nightly Framework.framework/Versions/154.1.98.11/Helpers/Brave Origin Nightly Helper (Renderer).app/Contents/MacOS/Brave Origin Nightly Helper (Renderer)"
+    local nightly="$apps/Brave Browser Nightly.app/Contents/MacOS/Brave Browser Nightly"
+    local settings="$apps/Karabiner-Elements.app/Contents/Resources/Karabiner-Elements Settings.app/Contents/MacOS/Karabiner-Elements Settings"
+    local console="$apps/Autodesk Fusion.app/Contents/MacOS/AcCoreConsole"
+    local broken="$apps/Broken.app/Contents/MacOS/Brave Nightly Beta"
+    printf '  PID  PPID COMM ARGS\n  701     1 %s %s\n  702     1 %s %s --type=renderer\n' \
+        "$origin" "$origin" "$origin_helper" "$origin_helper" > "$HOME/table-sibling"
+    printf '  PID  PPID COMM ARGS\n  701     1 %s %s\n  703     1 %s %s\n' \
+        "$origin" "$origin" "$nightly" "$nightly" > "$HOME/table-owner"
+    printf '  PID  PPID COMM ARGS\n  704     1 %s %s\n' "$settings" "$settings" > "$HOME/table-nested"
+    printf '  PID  PPID COMM ARGS\n  705     1 %s %s\n' "$console" "$console" > "$HOME/table-helper"
+    printf '  PID  PPID COMM ARGS\n  706     1 %s %s\n' "$broken" "$broken" > "$HOME/table-broken"
+
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/file_ops.sh"
+ps() { cat "$HOME/$TABLE"; }
+probe() {
+    local state=0
+    _mole_reset_process_snapshot
+    TABLE="$1"
+    _mole_user_cache_owner_process_state "$2" || state=$?
+    printf '%s %s=%s\n' "$1" "$2" "$state"
+}
+probe table-sibling com.brave.Browser.nightly
+probe table-sibling com.brave.Browser.origin.nightly
+probe table-owner com.brave.Browser.nightly
+probe table-nested org.pqrs.Karabiner-Elements.Settings
+probe table-helper com.autodesk.AcCoreConsole
+probe table-broken com.brave.Browser.nightly
+EOF
+
+    [ "$status" -eq 0 ] || {
+        echo "$output"
+        return 1
+    }
+    [[ "$output" == *"table-sibling com.brave.Browser.nightly=1"* ]] || return 1
+    [[ "$output" == *"table-sibling com.brave.Browser.origin.nightly=0"* ]] || return 1
+    [[ "$output" == *"table-owner com.brave.Browser.nightly=0"* ]] || return 1
+    [[ "$output" == *"table-nested org.pqrs.Karabiner-Elements.Settings=0"* ]] || return 1
+    [[ "$output" == *"table-helper com.autodesk.AcCoreConsole=0"* ]] || return 1
+    [[ "$output" == *"table-broken com.brave.Browser.nightly=0"* ]]
+}
+
 @test "cache owner probes reuse one process table snapshot" {
 	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
